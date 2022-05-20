@@ -1,6 +1,7 @@
 const express = require('express');
-const { MongoClient, ServerApiVersion } = require('mongodb');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const { MongoClient, ServerApiVersion } = require('mongodb');
 require('dotenv').config();
 const app = express()
 const port = process.env.PORT || 5000;
@@ -9,6 +10,20 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+const varifyJWT = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        return res.status(401).send({ message: 'UnAuthorized Access' });
+    }
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+        if (err) {
+            return res.status(403).send({ message: "Forbidden Access" })
+        }
+        req.decoded = decoded;
+        next()
+    })
+}
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.wo7cy.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
@@ -36,7 +51,8 @@ async function run() {
                 $set: user,
             };
             const result = await userCollection.updateOne(filter, updatedDoc, options);
-            res.send(result)
+            const token = jwt.sign({ email: email }, '7b19abd20134a804eb13b999ac456afbd995f42923d6a7080a3d1910ca2a5dd07235602802c92f63de6551857296df58a518d5dcd3f41c0202f56e1483cb986b', { expiresIn: '1h' })
+            res.send({ result, token })
         })
 
         //warning:
@@ -71,11 +87,17 @@ async function run() {
          * app.delete('/booking/:id') //delete a data.
          **/
 
-        app.get('/booking', async (req, res) => {
+        app.get('/booking', varifyJWT, async (req, res) => {
             const patient = req.query.patient;
-            const query = { patient: patient };
-            const bookings = await bookingCollection.find(query).toArray();
-            res.send(bookings);
+            const decodedEmail = req.decoded.email;
+            if (patient === decodedEmail) {
+                const query = { patient: patient };
+                const bookings = await bookingCollection.find(query).toArray();
+                return res.send(bookings);
+            }
+            else {
+                return res.statue(403).send({ message: 'Forbidden Access' })
+            }
         })
 
         app.post('/booking', async (req, res) => {
